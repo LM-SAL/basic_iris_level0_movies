@@ -311,3 +311,22 @@ def get_date_range(start_date, end_date):
         dates.append(start.strftime("%Y/%m/%d/H%H00"))
         start += timedelta(hours=1)
     return dates
+
+
+def split_iris_sji_files(filelist):
+    # Quick and dirty to get split SJI files
+    sji_1330_files = []
+    sji_1400_files = []
+    sji_2796_files = []
+    sji_2832_files = []
+    for file in filelist:
+        img_path = fits.getheader(file, ext=1)["IMG_PATH"]
+        if img_path == "SJI_1330":
+            sji_1330_files.append(file)
+        if img_path == "SJI_1400":
+            sji_1400_files.append(file)
+        if img_path == "SJI_2796":
+            sji_2796_files.append(file)
+        if img_path == "SJI_2832":
+            sji_2832_files.append(file)
+    return sji_1330_files, sji_1400_files, sji_2796_files, sji_2832_files

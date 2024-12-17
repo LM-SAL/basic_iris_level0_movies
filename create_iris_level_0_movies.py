@@ -48,16 +48,26 @@ else:
 
 for date in dates:
     all_files = glob.glob(args.l0path + date + "/*.fits")
-    sji_files = [f for f in all_files if "sji" in f]
-    fuv_files = [f for f in all_files if "fuv" in f]
-    nuv_files = [f for f in all_files if "nuv" in f]
+    sji_files = sorted([f for f in all_files if "sji" in f])
+    fuv_files = sorted([f for f in all_files if "fuv" in f])
+    nuv_files = sorted([f for f in all_files if "nuv" in f])
+    sji_1330_files, sji_1400_files, sji_2796_files, sji_2832_files = (
+        l0mr.split_iris_sji_files(sji_files)
+    )
     logger.info(
-        f"Found {len(sji_files)} SJI files, {len(fuv_files)} FUV files, and {len(nuv_files)} NUV files for {date}",
+        f"Found {len(sji_files)} SJI files:\n"
+        f"1330 - {len(sji_1330_files)} 1400 - {len(sji_1400_files)} 2796 - {len(sji_2796_files)} 2832 - {len(sji_2832_files)}\n"
+        f"FUV {len(fuv_files)} files\n"
+        f"NUV {len(nuv_files)} files\n"
+        f"for {date}",
     )
     date_path = os.path.join(args.outpath, date[0:10])
     os.makedirs(date_path, exist_ok=True)
     for band, fits_files in [
-        ("sji", sji_files),
+        ("sji_1330", sji_1330_files),
+        ("sji_1400", sji_1400_files),
+        ("sji_2796", sji_2796_files),
+        ("sji_2832", sji_2832_files),
         ("fuv", fuv_files),
         ("nuv", nuv_files),
     ]:
@@ -72,4 +82,4 @@ for date in dates:
             )
             movie_maker.create_movie()
         else:
-            logger.info(fullpath + " exist.")
+            logger.info(fullpath + " exists")
