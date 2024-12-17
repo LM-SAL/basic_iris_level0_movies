@@ -6,7 +6,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-from astropy.io.fits.header import Header
 from astropy.visualization import (
     AsinhStretch,
 )
@@ -16,6 +15,7 @@ from scipy import ndimage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def extract_regions(array, min_size=1):
     """Extracts separate regions of non-NaN values from array.
