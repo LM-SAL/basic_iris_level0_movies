@@ -64,12 +64,12 @@ for date in dates:
     date_path = os.path.join(args.outpath, date[0:10])
     os.makedirs(date_path, exist_ok=True)
     for band, fits_files in [
-        ("sji_1330", sji_1330_files),
-        ("sji_1400", sji_1400_files),
-        ("sji_2796", sji_2796_files),
-        ("sji_2832", sji_2832_files),
-        ("fuv", fuv_files),
-        ("nuv", nuv_files),
+        ("SJI_1330", sji_1330_files),
+        ("SJI_1400", sji_1400_files),
+        ("SJI_2796", sji_2796_files),
+        ("SJI_2832", sji_2832_files),
+        ("FUV", fuv_files),
+        ("NUV", nuv_files),
     ]:
         if len(fits_files) == 0:
             logger.info(f"No {band} files found for {date}")

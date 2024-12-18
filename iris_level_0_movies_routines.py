@@ -10,7 +10,9 @@ from astropy.visualization import (
     AsinhStretch,
 )
 from astropy.visualization.mpl_normalize import ImageNormalize
+from matplotlib import ticker
 from matplotlib.animation import FFMpegWriter, FuncAnimation
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from scipy import ndimage
 
 logging.basicConfig(level=logging.INFO)
@@ -211,7 +213,6 @@ class FITSMovieMaker:
         """Update the table with the current frame's header values."""
         table_data = [
             [f'FSN: {header["FSN"]}'],
-            [f'IMG_PATH: {header["IMG_PATH"]}'],
             [f'EXPTIME: {header["EXPTIME"]}'],
             [f'ISQOLTID: {header["ISQOLTID"]}'],
             [f'IISSLOOP: {header["IISSLOOP"]}'],
@@ -224,55 +225,73 @@ class FITSMovieMaker:
             cell = self.table._cells[key]
             cell.get_text().set_text(table_data[key[0]][key[1]])
 
-    def _setup_plot(self, first_frame, first_header) -> None:
+    def _setup_plot(self, frame, header) -> None:
         """Set up the matplotlib figure and axis for animation."""
-        modifier = "SJI" in first_header["IMG_PATH"]
-        self.fig = plt.figure(figsize=(12, 12) if modifier else (16, 8))
-        self.gs = plt.GridSpec(2, 1, height_ratios=[10, 1])
-        self.vmin, self.vmax = image_clipping(first_frame)
-        self.ax_im = plt.subplot(self.gs[0])
+        modifier = "SJI" in header["IMG_PATH"]
+        self.fig = plt.figure(figsize=(8, 8) if modifier else (11, 7))
+        vmin, vmax = image_clipping(frame)
+        self.ax_im = self.fig.add_subplot(1, 1, 1)
         self.im = self.ax_im.imshow(
-            first_frame,
-            norm=ImageNormalize(vmin=self.vmin, vmax=self.vmax, stretch=AsinhStretch()),
+            frame,
+            norm=ImageNormalize(vmin=vmin, vmax=vmax, stretch=AsinhStretch()),
             cmap=self.cmap,
             origin="lower",
         )
-        self.cb = plt.colorbar(
-            self.im,
-            ax=self.ax_im,
-            shrink=0.5,
-            fraction=0.1,
-            orientation="vertical" if modifier else "horizontal",
+        self.ax_cbar = inset_axes(
+            self.ax_im,
+            width="1%",
+            height="50%",
+            loc="upper left",
+            bbox_to_anchor=(1.01, 0.0, 1, 1),
+            bbox_transform=self.ax_im.transAxes,
+            borderpad=0,
         )
-        self.ax_im.set_title(f'DATE-OBS {first_header["DATE-OBS"]}')
-        self.ax_table = plt.subplot(self.gs[1])
+        self.cbar = self.fig.colorbar(
+            self.im,
+            cax=self.ax_cbar,
+            orientation="vertical",
+        )
+        self.cbar.ax.tick_params(labelsize=8)
+        self.cbar.locator = ticker.AsinhLocator(linear_width=0.01, numticks=11)
+        self.cbar.update_ticks()
+        self.ax_im.set_title(f'DATE-OBS: {header["DATE-OBS"]} - {header["IMG_PATH"]}')
         table_data = [
-            [f'FSN: {first_header["FSN"]}'],
-            [f'IMG_PATH: {first_header["IMG_PATH"]}'],
-            [f'EXPTIME: {first_header["EXPTIME"]}'],
-            [f'ISQOLTID: {first_header["ISQOLTID"]}'],
-            [f'IISSLOOP: {first_header["IISSLOOP"]}'],
-            [f'IAECEVFL: {first_header["IAECEVFL"]}'],
-            [f'IAECFLAG: {first_header["IAECFLAG"]}'],
-            [f'SUMSPAT: {first_header["SUMSPAT"]}'],
-            [f'SUMSPTRL: {first_header["SUMSPTRL"]}'],
+            [f'FSN: {header["FSN"]}'],
+            [f'EXPTIME: {header["EXPTIME"]}'],
+            [f'ISQOLTID: {header["ISQOLTID"]}'],
+            [f'IISSLOOP: {header["IISSLOOP"]}'],
+            [f'IAECEVFL: {header["IAECEVFL"]}'],
+            [f'IAECFLAG: {header["IAECFLAG"]}'],
+            [f'SUMSPAT: {header["SUMSPAT"]}'],
+            [f'SUMSPTRL: {header["SUMSPTRL"]}'],
         ]
-        self.table = self.ax_table.table(
-            cellText=table_data,
-            loc="center",
-            cellLoc="center",
+        self.ax_table = inset_axes(
+            self.ax_im,
+            width="15%",
+            height="50%",
+            loc="lower left",
+            bbox_to_anchor=(0.99, -0.05, 1, 1),
+            bbox_transform=self.ax_im.transAxes,
+            borderpad=0,
         )
         self.ax_table.axis("off")
-        self.table.scale(0.2, 1)
-        plt.tight_layout()
+        self.table = self.ax_table.table(
+            cellText=table_data,
+            cellLoc="left",
+            edges="open",
+            loc="upper center" if modifier else "lower center",
+        )
 
     def _update_frame(self, frame_num) -> list:
         """Update function for animation."""
         try:
             data, header = self._read_fits(self.fits_files[frame_num])
             self.im.set_data(data)
-            self.im.set_clim(self.vmin, self.vmax)
-            self.ax_im.set_title(f'DATE-OBS {header["DATE-OBS"]}')
+            vmin, vmax = image_clipping(data)
+            self.im.set_clim(vmin, vmax)
+            self.ax_im.set_title(
+                f'DATE-OBS {header["DATE-OBS"]} - {header["IMG_PATH"]}',
+            )
             self._update_table(header)
             return [self.im]
         except Exception:
