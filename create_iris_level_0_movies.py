@@ -3,13 +3,9 @@
 import argparse
 import datetime as dt
 import glob
-import logging
 import os
 
 import iris_level_0_movies_routines as l0mr
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser(description="Creating IRIS Level 0 Movies")
 parser.add_argument(
@@ -43,7 +39,7 @@ else:
     tnow = dt.datetime.now(dt.timezone.utc)
     str_end = tnow.strftime("%Y/%m/%d/H%H00")
     str_begin = (tnow - dt.timedelta(hours=args.hours)).strftime("%Y/%m/%d/H%H00")
-    logger.info(f"Trying to make movies from {str_begin} to {str_end}")
+    l0mr.logger.info(f"Trying to make movies from {str_begin} to {str_end}")
     dates = l0mr.get_date_range(str_begin, str_end)
 
 for date in dates:
@@ -54,13 +50,13 @@ for date in dates:
     sji_1330_files, sji_1400_files, sji_2796_files, sji_2832_files = (
         l0mr.split_iris_sji_files(sji_files)
     )
-    logger.info(
-        f"Found {len(sji_files)} SJI files:\n"
-        f"1330 - {len(sji_1330_files)} 1400 - {len(sji_1400_files)} 2796 - {len(sji_2796_files)} 2832 - {len(sji_2832_files)}\n"
-        f"FUV {len(fuv_files)} files\n"
-        f"NUV {len(nuv_files)} files\n"
-        f"for {date}",
+    l0mr.logger.info(f"Found {len(sji_files)} SJI files:")
+    l0mr.logger.info(
+        f"1330 - {len(sji_1330_files)} 1400 - {len(sji_1400_files)} 2796 - {len(sji_2796_files)} 2832 - {len(sji_2832_files)}",
     )
+    l0mr.logger.info(f"FUV {len(fuv_files)} files")
+    l0mr.logger.info(f"NUV {len(nuv_files)} files")
+    l0mr.logger.info(f"for {date}")
     date_path = os.path.join(args.outpath, date[0:10])
     os.makedirs(date_path, exist_ok=True)
     for band, fits_files in [
@@ -72,7 +68,7 @@ for date in dates:
         ("NUV", nuv_files),
     ]:
         if len(fits_files) == 0:
-            logger.info(f"No {band} files found for {date}")
+            l0mr.logger.info(f"No {band} files found for {date}")
             continue
         fullpath = os.path.join(date_path, f"{date[11:16]}_{band}.mp4")
         if not os.path.exists(fullpath):
@@ -82,4 +78,4 @@ for date in dates:
             )
             movie_maker.create_movie()
         else:
-            logger.info(fullpath + " exists")
+            l0mr.logger.info(fullpath + " exists")

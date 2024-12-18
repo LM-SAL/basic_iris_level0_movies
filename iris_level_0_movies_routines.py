@@ -1,22 +1,36 @@
-import logging
 import numbers
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import sunpy.visualization.colormaps as cm  # NOQA: F401
 from astropy.io import fits
 from astropy.visualization import (
     AsinhStretch,
 )
 from astropy.visualization.mpl_normalize import ImageNormalize
-from matplotlib import ticker
+from matplotlib import rcParams, ticker
+from matplotlib._tight_bbox import adjust_bbox
 from matplotlib.animation import FFMpegWriter, FuncAnimation
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from scipy import ndimage
+from sunpy import log as logger
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
+def resize_fig(
+    fig,
+    pad_inches=None,
+):
+    """From https://github.com/matplotlib/matplotlib/issues/25608/."""
+    renderer = fig.canvas.get_renderer()
+    bbox_inches = fig.get_tightbbox(
+        renderer,
+    )
+    if pad_inches is None:
+        pad_inches = rcParams["savefig.pad_inches"]
+    bbox_inches = bbox_inches.padded(pad_inches)
+    return adjust_bbox(fig, bbox_inches, fig.canvas.fixed_dpi)
 
 
 def extract_regions(array, min_size=1):
@@ -154,7 +168,6 @@ class FITSMovieMaker:
         output_path: str,
         interval: int = 500,
         fps: int = 10,
-        cmap: str = "magma",
     ) -> None:
         """Initialize the FITSMovieMaker class.
 
@@ -180,7 +193,9 @@ class FITSMovieMaker:
         self.output_path = Path(output_path)
         self.interval = interval
         self.fps = fps
-        self.cmap = cmap
+        self.vmin = []
+        self.vmax = []
+        self._get_vmin_vmax()
 
     def _read_fits(self, fits_path):
         """Read FITS file.
@@ -225,18 +240,50 @@ class FITSMovieMaker:
             cell = self.table._cells[key]
             cell.get_text().set_text(table_data[key[0]][key[1]])
 
+    def _get_vmin_vmax(self) -> None:
+        for file in self.fits_files:
+            header = fits.getheader(file, ext=1)
+            self.vmin.append(header["DATAMIN"])
+            self.vmax.append(header["DATAMAX"])
+
+    def _get_plot_settings(self, header):
+        if "SJI_1330" in header["IMG_PATH"]:
+            gamma = 0.8
+            cmap = plt.get_cmap("irissji1330")
+        elif "SJI_1400" in header["IMG_PATH"]:
+            gamma = 0.8
+            cmap = plt.get_cmap("irissji1400")
+        elif "SJI_2796" in header["IMG_PATH"]:
+            gamma = 0.8
+            cmap = plt.get_cmap("irissji2796")
+        elif "SJI_2832" in header["IMG_PATH"]:
+            gamma = 0.8
+            cmap = plt.get_cmap("irissji2832")
+        elif "FUV" in header["IMG_PATH"]:
+            gamma = 0.72
+            cmap = plt.get_cmap("irissjiFUV")
+        elif "NUV" in header["IMG_PATH"]:
+            gamma = 1
+            cmap = plt.get_cmap("irissjiNUV")
+        else:
+            cmap = "inferno"
+        return gamma, cmap
+
     def _setup_plot(self, frame, header) -> None:
         """Set up the matplotlib figure and axis for animation."""
-        modifier = "SJI" in header["IMG_PATH"]
-        self.fig = plt.figure(figsize=(8, 8) if modifier else (11, 7))
-        vmin, vmax = image_clipping(frame)
+        self.fig = plt.figure(figsize=(6, 6) if "SJI" in header["IMG_PATH"] else (8, 4))
+        gamma, cmap = self._get_plot_settings(header)
+        vmin, vmax = image_clipping(np.array([self.vmin, self.vmax]), gamma=gamma)
         self.ax_im = self.fig.add_subplot(1, 1, 1)
         self.im = self.ax_im.imshow(
             frame,
             norm=ImageNormalize(vmin=vmin, vmax=vmax, stretch=AsinhStretch()),
-            cmap=self.cmap,
+            cmap=cmap,
             origin="lower",
         )
+        plt.xticks(fontsize=4)
+        plt.yticks(fontsize=4)
+        self.ax_im.tick_params(axis="both", which="major", length=2, width=1)
         self.ax_cbar = inset_axes(
             self.ax_im,
             width="1%",
@@ -251,9 +298,11 @@ class FITSMovieMaker:
             cax=self.ax_cbar,
             orientation="vertical",
         )
-        self.cbar.ax.tick_params(labelsize=8)
-        self.cbar.locator = ticker.AsinhLocator(linear_width=0.01, numticks=11)
-        self.cbar.update_ticks()
+        self.cbar.locator = ticker.MaxNLocator(
+            nbins="auto", integer=True, min_n_ticks=8,
+        )
+        self.cbar.ax.tick_params(labelsize=5)
+        # self.cbar.update_ticks()
         self.ax_im.set_title(f'DATE-OBS: {header["DATE-OBS"]} - {header["IMG_PATH"]}')
         table_data = [
             [f'FSN: {header["FSN"]}'],
@@ -270,7 +319,7 @@ class FITSMovieMaker:
             width="15%",
             height="50%",
             loc="lower left",
-            bbox_to_anchor=(0.99, -0.05, 1, 1),
+            bbox_to_anchor=(1.02, -0.05, 1, 1),
             bbox_transform=self.ax_im.transAxes,
             borderpad=0,
         )
@@ -279,16 +328,16 @@ class FITSMovieMaker:
             cellText=table_data,
             cellLoc="left",
             edges="open",
-            loc="upper center" if modifier else "lower center",
+            loc="upper center",
         )
+        self.table.scale(1.5, 1.5)
+        resize_fig(self.fig)
 
     def _update_frame(self, frame_num) -> list:
         """Update function for animation."""
         try:
             data, header = self._read_fits(self.fits_files[frame_num])
             self.im.set_data(data)
-            vmin, vmax = image_clipping(data)
-            self.im.set_clim(vmin, vmax)
             self.ax_im.set_title(
                 f'DATE-OBS {header["DATE-OBS"]} - {header["IMG_PATH"]}',
             )
@@ -323,6 +372,22 @@ class FITSMovieMaker:
 
 
 def get_date_range(start_date, end_date):
+    """Return a list of all dates in the range from start_date to end_date (inclusive),
+    with each date in the format "YYYY/MM/DD/HHH00".
+
+    Parameters
+    ----------
+    start_date : str
+        The start date (inclusive) in the format "YYYY/MM/DD/HHH00".
+    end_date : str
+        The end date (inclusive) in the format "YYYY/MM/DD/HHH00".
+
+    Returns
+    -------
+    list
+        A list of all dates in the range from start_date to end_date (inclusive).
+
+    """
     start = datetime.strptime(start_date, "%Y/%m/%d/H%H00")
     end = datetime.strptime(end_date, "%Y/%m/%d/H%H00")
     dates = []
@@ -332,20 +397,21 @@ def get_date_range(start_date, end_date):
     return dates
 
 
-def split_iris_sji_files(filelist):
-    # Quick and dirty to get split SJI files
-    sji_1330_files = []
-    sji_1400_files = []
-    sji_2796_files = []
-    sji_2832_files = []
-    for file in filelist:
+def split_iris_sji_files(file_list):
+    """Splits SJI files into separate lists based on their image path."""
+    sji_files = {
+        "SJI_1330": [],
+        "SJI_1400": [],
+        "SJI_2796": [],
+        "SJI_2832": [],
+    }
+    for file in file_list:
         img_path = fits.getheader(file, ext=1)["IMG_PATH"]
-        if img_path == "SJI_1330":
-            sji_1330_files.append(file)
-        if img_path == "SJI_1400":
-            sji_1400_files.append(file)
-        if img_path == "SJI_2796":
-            sji_2796_files.append(file)
-        if img_path == "SJI_2832":
-            sji_2832_files.append(file)
-    return sji_1330_files, sji_1400_files, sji_2796_files, sji_2832_files
+        if img_path in sji_files:
+            sji_files[img_path].append(file)
+    return (
+        sji_files["SJI_1330"],
+        sji_files["SJI_1400"],
+        sji_files["SJI_2796"],
+        sji_files["SJI_2832"],
+    )
