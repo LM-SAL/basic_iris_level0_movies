@@ -1,13 +1,14 @@
-import numbers
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
 import sunpy.visualization.colormaps as cm  # NOQA: F401
 from astropy.io import fits
 from astropy.visualization import (
     AsinhStretch,
+    AsymmetricPercentileInterval,
 )
 from astropy.visualization.mpl_normalize import ImageNormalize
 from matplotlib import rcParams, ticker
@@ -99,64 +100,6 @@ def combine_regions(regions, spacing=1):
     else:
         combined = np.concatenate(padded_regions, axis=1)
     return combined
-
-
-def image_clipping(image, cutoff=1.5e-3, gamma=1.0):
-    """Computes and returns the min and max values of the input (image), clipping
-    brightest and darkest pixels.
-
-    Parameters
-    ----------
-    image : `numpy.ndarray`
-        The input image.
-    cutoff : float, optional
-        The cutoff value for the histogram.
-        Defaults to 1.5e-3
-    gamma : float, optional
-        The gamma value for the histogram.
-        Defaults to 1.0
-
-    References
-    ----------
-    Based on original IDL routine by P.Suetterlin (06 Jul 1993)
-    Ported by V.Hansteen (15 Apr 2020)
-
-    """
-    hmin = np.nanmin(image)
-    hmax = np.nanmax(image)
-    if issubclass(image.dtype.type, numbers.Integral):
-        nbins = np.abs(np.nanmax(image) - np.nanmin(image))
-        hist = np.histogram(image, bins=nbins)
-        fak = 1
-    else:
-        nbins = 10000
-        fak = nbins / (hmax - hmin)
-        hist = np.histogram((image - hmin) * fak, range=(0.0, float(nbins)), bins=nbins)
-    h = hist[0]
-    bins = hist[1]
-    nh = np.size(h)
-    # Integrate the histogram so that h(i) holds the number of points
-    # with equal or lower intensity.
-    for i in range(1, nh - 1):
-        h[i] = h[i] + h[i - 1]
-    h = h / float(h[nh - 2])
-    h[nh - 1] = 1
-    # As cutoff is in percent and h is normalized to unity,
-    # vmin/vmax are the indices of the point where the number of pixels
-    # with lower/higher intensity reach the given limit. This has to be
-    # converted to a real image value by dividing by the scalefactor
-    # fak and adding the min value of the image
-    # Note that the bottom value is taken off (addition of h[0] to cutoff),
-    # there are often very many points in IRIS images that are set to zero, this
-    # removes them from calculation... and seems to work.
-    vmin = (
-        np.nanmax(np.where(h <= (cutoff + h[0]), bins[1:] - bins[0], 0)) / fak + hmin
-    ) ** gamma
-    vmax = (
-        np.nanmin(np.where(h >= (1.0 - cutoff), bins[1:] - bins[0], nh - 2)) / fak
-        + hmin
-    ) ** gamma
-    return vmin, vmax
 
 
 class FITSMovieMaker:
@@ -272,12 +215,15 @@ class FITSMovieMaker:
     def _setup_plot(self, frame, header) -> None:
         """Set up the matplotlib figure and axis for animation."""
         self.fig = plt.figure(figsize=(6, 6) if "SJI" in header["IMG_PATH"] else (8, 4))
-        gamma, cmap = self._get_plot_settings(header)
-        vmin, vmax = image_clipping(np.array([self.vmin, self.vmax]), gamma=gamma)
+        _, cmap = self._get_plot_settings(header)
+        clip_percentages = ((2, 98) * u.percent).value
+        vmin, vmax = AsymmetricPercentileInterval(*clip_percentages).get_limits(
+            np.array([self.vmin, self.vmax]),
+        )
         self.ax_im = self.fig.add_subplot(1, 1, 1)
         self.im = self.ax_im.imshow(
             frame,
-            norm=ImageNormalize(vmin=vmin, vmax=vmax, stretch=AsinhStretch()),
+            norm=ImageNormalize(vmin=vmin, vmax=vmax, stretch=AsinhStretch(0.001)),
             cmap=cmap,
             origin="lower",
         )
@@ -299,10 +245,12 @@ class FITSMovieMaker:
             orientation="vertical",
         )
         self.cbar.locator = ticker.MaxNLocator(
-            nbins="auto", integer=True, min_n_ticks=8,
+            nbins="auto",
+            integer=True,
+            min_n_ticks=10,
+            prune=None,
         )
-        self.cbar.ax.tick_params(labelsize=5)
-        # self.cbar.update_ticks()
+        self.cbar.ax.tick_params(labelsize=4, rotation=45)
         self.ax_im.set_title(f'DATE-OBS: {header["DATE-OBS"]} - {header["IMG_PATH"]}')
         table_data = [
             [f'FSN: {header["FSN"]}'],
